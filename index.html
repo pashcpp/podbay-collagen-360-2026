@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><title>PODBAY — закрытый просмотр 360°</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#efede8;color:#1d1d1b;font-family:Arial,sans-serif}
+#gate{min-height:100vh;display:grid;place-items:center;padding:24px}.card{width:min(430px,100%);background:#fff;padding:32px;border:1px solid #d8d5cf;box-shadow:0 18px 60px #28231b12}
+.brand{font-size:30px;font-weight:800;letter-spacing:-2px}h1{font-size:25px;font-weight:500;margin:30px 0 12px}p{font-size:14px;line-height:1.5;color:#5b5a57}label{display:block;margin:25px 0 8px;font-size:13px;font-weight:700}input{width:100%;padding:13px;font:inherit;border:1px solid #8d8b86;border-radius:0}button{margin-top:14px;width:100%;padding:13px;color:#fff;background:#242424;border:0;cursor:pointer;font:inherit}button:disabled{opacity:.5}#error{color:#ab273b;min-height:22px}#viewer{display:none;width:100vw;height:100vh;border:0}
+</style></head><body>
+<div id="gate"><div class="card"><div class="brand">podbay</div><h1>Коллаген / 360°</h1><p>Закрытый просмотр этикеток и редактируемых исходников. Введите пароль, который вам передали отдельно.</p><form id="form"><label for="password">Пароль</label><input id="password" type="password" autocomplete="off" required><button id="submit">Открыть конструктор</button></form><p id="error" role="alert"></p></div></div>
+<iframe id="viewer" title="PODBAY 360°"></iframe>
+<script>
+let rawKey;
+const enc=new TextEncoder();
+const gate=document.getElementById('gate'),viewer=document.getElementById('viewer');
+const error=document.getElementById('error'),submit=document.getElementById('submit');
+async function decrypt(bytes,key){
+  const iv=bytes.slice(0,12),data=bytes.slice(12);
+  return crypto.subtle.decrypt({name:'AES-GCM',iv},key,data);
+}
+navigator.serviceWorker?.addEventListener('message',event=>{
+  if(event.data?.type==='need-key'&&rawKey&&event.ports[0])event.ports[0].postMessage(rawKey);
+});
+document.getElementById('form').addEventListener('submit',async event=>{
+  event.preventDefault();submit.disabled=true;error.textContent='Проверяем пароль…';
+  try{
+    if(!crypto.subtle||!navigator.serviceWorker)throw Error('Откройте ссылку в современном браузере по HTTPS.');
+    const cfg=await(await fetch('./security.json',{cache:'no-store'})).json();
+    const salt=Uint8Array.from(atob(cfg.salt),c=>c.charCodeAt(0));
+    const base=await crypto.subtle.importKey('raw',enc.encode(document.getElementById('password').value),'PBKDF2',false,['deriveBits']);
+    rawKey=await crypto.subtle.deriveBits({name:'PBKDF2',salt,iterations:cfg.iterations,hash:'SHA-256'},base,256);
+    const key=await crypto.subtle.importKey('raw',rawKey,'AES-GCM',false,['decrypt']);
+    const check=await(await fetch('./check.enc',{cache:'no-store'})).arrayBuffer();
+    const plain=new TextDecoder().decode(await decrypt(new Uint8Array(check),key));
+    if(plain!=='PODBAY-360-VALID')throw Error('Неверный пароль.');
+    const reg=await navigator.serviceWorker.register('./sw.js');
+    await navigator.serviceWorker.ready;
+    if(!navigator.serviceWorker.controller)await new Promise(resolve=>navigator.serviceWorker.addEventListener('controllerchange',resolve,{once:true}));
+    const channel=new MessageChannel();
+    const ack=new Promise((resolve,reject)=>{channel.port1.onmessage=e=>e.data?.ok?resolve():reject(Error('Не удалось открыть просмотр.'));});
+    reg.active.postMessage({type:'unlock',key:rawKey},[channel.port2]);
+    await ack;
+    gate.style.display='none';viewer.style.display='block';viewer.src='./viewer/index.html';
+    document.getElementById('password').value='';error.textContent='';
+  }catch(e){rawKey=null;error.textContent=e.message||'Не удалось открыть просмотр.';}
+  finally{submit.disabled=false;}
+});
+</script></body></html>
