@@ -33,7 +33,17 @@ document.getElementById('form').addEventListener('submit',async event=>{
     const plain=new TextDecoder().decode(await decrypt(new Uint8Array(check),key));
     if(plain!=='PODBAY-360-VALID')throw Error('Неверный пароль.');
     const reg=await navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'});
+    await reg.update();
     await navigator.serviceWorker.ready;
+    const latestWorker=reg.installing||reg.waiting||reg.active;
+    if(latestWorker&&latestWorker.state!=='activated')await new Promise((resolve,reject)=>{
+      const timeout=setTimeout(()=>reject(Error('Обновление просмотра ещё загружается. Попробуйте снова.')),15000);
+      const changed=()=>{
+        if(latestWorker.state==='activated'){clearTimeout(timeout);latestWorker.removeEventListener('statechange',changed);resolve();}
+        else if(latestWorker.state==='redundant'){clearTimeout(timeout);reject(Error('Повторите вход после обновления.'));}
+      };
+      latestWorker.addEventListener('statechange',changed);changed();
+    });
     if(!navigator.serviceWorker.controller)await new Promise(resolve=>navigator.serviceWorker.addEventListener('controllerchange',resolve,{once:true}));
     const channel=new MessageChannel();
     const ack=new Promise((resolve,reject)=>{channel.port1.onmessage=e=>e.data?.ok?resolve():reject(Error('Не удалось открыть просмотр.'));});
