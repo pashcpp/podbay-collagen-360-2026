@@ -31,7 +31,7 @@ self.addEventListener('fetch',event=>{
   if(event.request.method!=='GET'||url.origin!==self.location.origin||!url.pathname.startsWith(basePath+'viewer/'))return;
   event.respondWith((async()=>{
     try{
-      const encrypted=await fetch(url.origin+url.pathname+'.enc');
+      const encrypted=await fetch(url.origin+url.pathname+'.enc?v=poli-r5-20261007');
       if(!encrypted.ok)return new Response('Файл не найден',{status:404});
       const bytes=new Uint8Array(await encrypted.arrayBuffer());
       const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes.slice(0,12)},await getKey(),bytes.slice(12));
